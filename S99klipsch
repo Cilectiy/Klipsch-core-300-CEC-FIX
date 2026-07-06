@@ -1,27 +1,45 @@
 #!/bin/sh
 
-case "$1" in
-    start)
-        echo "Starting Klipsch watcher..."
-        /opt/bin/python3 /opt/root/klipsch.py >/dev/null 2>&1 &
-        echo $! >/opt/var/run/klipsch.pid
-        ;;
-    stop)
-        echo "Stopping Klipsch watcher..."
-        if [ -f /opt/var/run/klipsch.pid ]; then
-            kill "$(cat /opt/var/run/klipsch.pid)" 2>/dev/null
-            rm -f /opt/var/run/klipsch.pid
-        fi
-        ;;
-    restart)
-        $0 stop
-        sleep 1
-        $0 start
-        ;;
-    *)
-        echo "Usage: $0 {start|stop|restart}"
-        exit 1
-        ;;
-esac
+PIDFILE="/opt/var/run/klipsch.pid"
 
-exit 0
+start() {
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "Klipsch watcher is already running."
+        return
+    fi
+
+    echo "Starting Klipsch watcher..."
+
+    (
+        while true; do
+            exec /opt/bin/python3 /opt/root/klipsch.py
+            sleep 5
+        done
+    ) &
+
+    echo $! > "$PIDFILE"
+}
+
+stop() {
+    echo "Stopping Klipsch watcher..."
+
+    if [ -f "$PIDFILE" ]; then
+        kill "$(cat "$PIDFILE")"
+        rm -f "$PIDFILE"
+    fi
+}
+
+status() {
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "Klipsch watcher is running."
+    else
+        echo "Klipsch watcher is stopped."
+    fi
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; sleep 1; start ;;
+    status) status ;;
+esac
