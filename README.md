@@ -1,0 +1,1 @@
+# Klipsch-core-300-CEC-FIX
