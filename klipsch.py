@@ -134,20 +134,20 @@ def get_tv_standby(host: str, timeout: float = 1.5):
     Возвращает:
       True  - TV в standby (или явно неактивен)
       False - TV включен (isActiveInput/onscreen активен)
-      None  - порт недоступен / нет ответа за timeout (считаем как "выключен" для целей будильника)
+      None  - порт недоступен / нет ответа / любая сетевая ошибка
+              (считаем как "выключен" для целей будильника)
+
+    ВАЖНО: ловим здесь буквально любое исключение (Exception), а не только
+    socket.timeout/ConnectionError. За долгую работу рано или поздно
+    вылезет ssl.SSLError / ssl.SSLEOFError (TV оборвал TLS не по протоколу)
+    или OSError на sendall - если их не поймать, необработанное исключение
+    убьёт весь процесс. Это и было причиной "умирает спустя время".
     """
+    sock = None
     try:
         raw = socket.create_connection((host, CAST_PORT), timeout=timeout)
-    except OSError:
-        return None
-
-    try:
         sock = CTX.wrap_socket(raw, server_hostname=host)
-    except ssl.SSLError:
-        raw.close()
-        return None
 
-    try:
         _send_message(sock, NS_CONNECTION, {"type": "CONNECT"})
         _send_message(sock, NS_HEARTBEAT, {"type": "PING"})
         _send_message(sock, NS_RECEIVER, {"requestId": 1, "type": "GET_STATUS"})
@@ -155,16 +155,19 @@ def get_tv_standby(host: str, timeout: float = 1.5):
         deadline = time.time() + timeout
         while time.time() < deadline:
             remaining = max(0.1, deadline - time.time())
-            try:
-                payload = _recv_message(sock, remaining)
-            except (socket.timeout, ConnectionError):
-                return None
+            payload = _recv_message(sock, remaining)
             if isinstance(payload, dict) and payload.get("type") == "RECEIVER_STATUS":
                 status = payload.get("status", {})
                 return bool(status.get("isStandBy", True))
         return None
+    except Exception:
+        return None
     finally:
-        sock.close()
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
 
 
 def wake_soundbar(soundbar_ip: str, connect_timeout: float = 2.0) -> bool:
@@ -207,42 +210,49 @@ def main():
     print(f"Watching {args.tv}:8009 -> {args.soundbar_ip}")
 
     while True:
-        interval = 5.0 if tv_was_on else 1.0
-        loop_start = time.time()
+        try:
+            interval = 5.0 if tv_was_on else 1.0
+            loop_start = time.time()
 
-        is_standby = get_tv_standby(
-            args.tv,
-            timeout=min(2.0, interval * 1.5)
-        )
+            is_standby = get_tv_standby(
+                args.tv,
+                timeout=min(2.0, interval * 1.5)
+            )
 
-        ts = time.strftime("%H:%M:%S")
+            ts = time.strftime("%H:%M:%S")
 
-        if is_standby is None:
-            if args.debug:
-                print(f"[{ts}] TV unreachable")
-            if tv_was_on:
-                print(f"[{ts}] TV OFF")
-            tv_was_on = False
-
-        elif is_standby:
-            if args.debug:
-                print(f"[{ts}] TV isStandBy=true")
-            if tv_was_on:
-                print(f"[{ts}] TV OFF")
-            tv_was_on = False
-
-        else:
-            if not tv_was_on:
-                print(f"[{ts}] TV ON -> waking soundbar")
-                ok = wake_soundbar(args.soundbar_ip)
+            if is_standby is None:
                 if args.debug:
-                    print(f"Wake request: {'OK' if ok else 'FAILED'}")
-            elif args.debug:
-                print(f"[{ts}] TV ON")
-            tv_was_on = True
+                    print(f"[{ts}] TV unreachable")
+                if tv_was_on:
+                    print(f"[{ts}] TV OFF")
+                tv_was_on = False
 
-        elapsed = time.time() - loop_start
-        time.sleep(max(0.0, interval - elapsed))
+            elif is_standby:
+                if args.debug:
+                    print(f"[{ts}] TV isStandBy=true")
+                if tv_was_on:
+                    print(f"[{ts}] TV OFF")
+                tv_was_on = False
+
+            else:
+                if not tv_was_on:
+                    print(f"[{ts}] TV ON -> waking soundbar")
+                    ok = wake_soundbar(args.soundbar_ip)
+                    if args.debug:
+                        print(f"Wake request: {'OK' if ok else 'FAILED'}")
+                elif args.debug:
+                    print(f"[{ts}] TV ON")
+                tv_was_on = True
+
+            elapsed = time.time() - loop_start
+            time.sleep(max(0.0, interval - elapsed))
+
+        except Exception as e:
+            # последний рубеж: что бы ни случилось в итерации, watcher не
+            # должен падать - логируем и живём дальше следующей итерацией
+            print(f"[!] неожиданная ошибка в цикле: {e}", file=sys.stderr)
+            time.sleep(1.0)
 
 
 if __name__ == "__main__":
