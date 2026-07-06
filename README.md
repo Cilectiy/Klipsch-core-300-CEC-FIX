@@ -42,6 +42,71 @@ python3 klipsch.py --debug
 
 В этом режиме отображается процесс проверки состояния телевизора и дополнительная диагностическая информация.
 
+## Проверка зависимостей
+
+Перед первым запуском рекомендуется убедиться, что Python и все необходимые модули установлены корректно.
+
+### Проверка версии Python
+
+```bash
+python3 --version
+```
+
+Должна отображаться версия Python **3.13** или новее.
+
+### Проверка необходимых модулей
+
+```bash
+python3 -c "import argparse, json, socket, ssl, sys, time"
+```
+
+Если команда ничего не вывела и вернулась к приглашению командной строки — все необходимые модули доступны.
+
+### Проверка OpenSSL
+
+```bash
+python3 -c "import ssl; print(ssl.OPENSSL_VERSION)"
+```
+
+Например:
+
+```text
+OpenSSL 3.5.2 5 Aug 2025
+```
+
+### Если возникают ошибки вида
+
+```text
+ModuleNotFoundError: No module named '_ssl'
+```
+
+или
+
+```text
+ImportError: libcrypto.so.3 ...
+```
+
+значит Python и OpenSSL имеют несовместимые версии.
+
+Для Entware рекомендуется полностью обновить пакеты Python и OpenSSL:
+
+```bash
+opkg update
+opkg upgrade python3-base
+opkg upgrade python3-light
+opkg upgrade python3-openssl
+opkg upgrade libopenssl
+```
+
+После обновления рекомендуется проверить:
+
+```bash
+python3 --version
+python3 -c "import ssl; print(ssl.OPENSSL_VERSION)"
+```
+
+Если обе команды выполняются без ошибок, система готова к запуску скрипта.
+
 ## Настраиваемые параметры
 
 ```bash
@@ -99,6 +164,8 @@ python3 klipsch.py \
 ```text
 /opt/etc/init.d/
 ```
+
+Замените путь `/opt/root/klipsch.py` до исполняемого .py файла в `S99klipsch`.
 
 ```bash
 chmod +x /opt/etc/init.d/S99klipsch
