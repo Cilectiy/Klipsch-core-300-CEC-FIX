@@ -1,5 +1,5 @@
 #!/bin/sh
-
+# /opt/etc/init.d/S99klipsch
 PIDFILE="/opt/var/run/klipsch.pid"
 
 start() {
@@ -7,24 +7,29 @@ start() {
         echo "Klipsch watcher is already running."
         return
     fi
-
     echo "Starting Klipsch watcher..."
-
     (
+        # без trap сигнал TERM/INT дойдёт только до этого wrapper-процесса,
+        # а текущий дочерний python3 останется сиротой и продолжит работать
+        trap 'kill "$CHILD_PID" 2>/dev/null; exit 0' TERM INT
+
         while true; do
-            exec /opt/bin/python3 /opt/root/klipsch.py
+            /opt/bin/python3 /opt/root/klipsch.py &
+            CHILD_PID=$!
+            wait "$CHILD_PID"
             sleep 5
         done
     ) &
-
     echo $! > "$PIDFILE"
 }
 
 stop() {
     echo "Stopping Klipsch watcher..."
-
     if [ -f "$PIDFILE" ]; then
-        kill "$(cat "$PIDFILE")"
+        pid="$(cat "$PIDFILE")"
+        if [ -n "$pid" ]; then
+            kill "$pid" 2>/dev/null
+        fi
         rm -f "$PIDFILE"
     fi
 }
@@ -38,8 +43,9 @@ status() {
 }
 
 case "$1" in
-    start) start ;;
-    stop) stop ;;
+    start)   start ;;
+    stop)    stop ;;
     restart) stop; sleep 1; start ;;
-    status) status ;;
+    status)  status ;;
+    *)       echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
 esac
