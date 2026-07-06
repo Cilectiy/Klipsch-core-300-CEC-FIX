@@ -1,0 +1,27 @@
+#!/bin/sh
+
+case "$1" in
+    start)
+        echo "Starting Klipsch watcher..."
+        /opt/bin/python3 /opt/root/klipsch.py >/dev/null 2>&1 &
+        echo $! >/opt/var/run/klipsch.pid
+        ;;
+    stop)
+        echo "Stopping Klipsch watcher..."
+        if [ -f /opt/var/run/klipsch.pid ]; then
+            kill "$(cat /opt/var/run/klipsch.pid)" 2>/dev/null
+            rm -f /opt/var/run/klipsch.pid
+        fi
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0
